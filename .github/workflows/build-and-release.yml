@@ -1,0 +1,102 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'  # 仅在推送标签时触发
+  workflow_dispatch:  # 允许手动触发
+
+env:
+  ACTIONS_ALLOW_UNSECURE_COMMANDS: true
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Set up CMake
+      uses: lukka/get-cmake@latest
+
+    - name: Install MinGW on Windows
+      if: matrix.os == 'windows-latest'
+      run: |
+        choco install mingw
+        echo "::add-path::C:\tools\mingw64\bin"
+
+    - name: Configure CMake on Windows
+      if: matrix.os == 'windows-latest'
+      run: cmake -S . -B build -G "MinGW Makefiles"
+    
+    - name: Configure CMake on Linux
+      if: matrix.os == 'ubuntu-latest'
+      run: cmake -S . -B build
+
+    - name: Build
+      run: cmake --build build --config Release
+
+    - name: Upload build artifacts (Windows)
+      if: matrix.os == 'windows-latest'
+      uses: actions/upload-artifact@v2
+      with:
+        name: Shapes-${{ matrix.os }}
+        path: build/MyShapes.exe
+    
+    - name: Upload build artifacts (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      uses: actions/upload-artifact@v2
+      with:
+        name: Shapes-${{ matrix.os }}
+        path: build/MyShapes
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+    - name: Download build artifacts (Linux)
+      uses: actions/download-artifact@v2
+      with:
+        name: Shapes-ubuntu-latest
+        path: ./artifacts/linux
+
+    - name: Download build artifacts (Windows)
+      uses: actions/download-artifact@v2
+      with:
+        name: Shapes-windows-latest
+        path: ./artifacts/windows
+
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ github.ref }}
+        draft: false
+        prerelease: false
+
+    - name: Upload Release Asset (Linux)
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./artifacts/linux/MyShapes
+        asset_name: Shapes-linux
+        asset_content_type: application/octet-stream
+
+    - name: Upload Release Asset (Windows)
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./artifacts/windows/MyShapes.exe
+        asset_name: Shapes-windows.exe
+        asset_content_type: application/octet-stream
